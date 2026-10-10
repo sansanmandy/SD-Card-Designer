@@ -36,6 +36,15 @@ type EditorSnapshot = {
   colorsByType: Record<DesignType, string>;
   designName: string;
 };
+
+type SavedProject = {
+  version: number;
+  designType: DesignType;
+  layersByType: Record<DesignType, TextLayer[]>;
+  selectedByType: Record<DesignType, number>;
+  colorsByType: Record<DesignType, string>;
+  designName: string;
+};
 type IconName =
   | "arrow"
   | "chevron"
@@ -446,9 +455,10 @@ function createDesignSvg(
     const contacts = Array.from(
       { length: 42 },
       (_, index) => {
-        const x = 34 + index * 56;
-        return `<path d="M${x} 466h38v96h-38z" fill="#c7a354"/>
-          <path d="M${x + 5} 466h28v79h-28z" fill="#e5c875" opacity=".72"/>`;
+        const padWidth = 43;
+        const x = 34 + index * ((2366 - padWidth - 34) / 41);
+        return `<path d="M${x} 466h${padWidth}v96h-${padWidth}z" fill="#c7a354"/>
+          <path d="M${x + 5} 466h33v79h-33z" fill="#e5c875" opacity=".72"/>`;
       },
     ).join("");
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -787,6 +797,7 @@ export default function App() {
   const pastHistory = useRef<EditorSnapshot[]>([]);
   const futureHistory = useRef<EditorSnapshot[]>([]);
   const nameHistoryRecorded = useRef(false);
+  const projectInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRefs = useRef<Record<DesignType, HTMLDivElement | null>>({
     sd: null,
     micro: null,
@@ -871,6 +882,13 @@ export default function App() {
 
   const setSelectedId = (id: number) => {
     setSelectedByType((current) => ({ ...current, [designType]: id }));
+  };
+
+  const renameDesign = (name: string) => {
+    const nextName = name.trim();
+    if (!nextName) return;
+    setDesignName(nextName);
+    setSaved(false);
   };
 
   const setCardColor = (color: string) => {
@@ -1182,15 +1200,85 @@ export default function App() {
     setIsPanning(false);
   };
 
+  const handleStageClick = () => {
+    setSelectedId(0);
+  };
+
+  const getProjectFilename = () => {
+    const cleanName = designName.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+    return cleanName || (designType === "sd" ? "standard-sd-design" : designType === "micro" ? "micro-sd-design" : "ram-design");
+  };
+
+  const saveProject = () => {
+    const payload: SavedProject = {
+      version: 1,
+      designType,
+      layersByType,
+      selectedByType,
+      colorsByType,
+      designName,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+
+    downloadBlob(blob, `${getProjectFilename()}.cardform.json`);
+    setSaved(true);
+  };
+
+  const loadProject = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const raw = await file.text();
+      const parsed = JSON.parse(raw) as Partial<SavedProject>;
+      const validDesignType = parsed.designType === "sd" || parsed.designType === "micro" || parsed.designType === "ram"
+        ? parsed.designType
+        : "sd";
+
+      const nextLayersByType: Record<DesignType, TextLayer[]> = {
+        sd: Array.isArray(parsed.layersByType?.sd) ? parsed.layersByType.sd : initialLayers,
+        micro: Array.isArray(parsed.layersByType?.micro) ? parsed.layersByType.micro : initialMicroLayers,
+        ram: Array.isArray(parsed.layersByType?.ram) ? parsed.layersByType.ram : initialRamLayers,
+      };
+
+      const nextSelectedByType: Record<DesignType, number> = {
+        sd: typeof parsed.selectedByType?.sd === "number" ? parsed.selectedByType.sd : nextLayersByType.sd[0]?.id ?? 0,
+        micro: typeof parsed.selectedByType?.micro === "number" ? parsed.selectedByType.micro : nextLayersByType.micro[0]?.id ?? 0,
+        ram: typeof parsed.selectedByType?.ram === "number" ? parsed.selectedByType.ram : nextLayersByType.ram[0]?.id ?? 0,
+      };
+
+      const nextColorsByType: Record<DesignType, string> = {
+        sd: typeof parsed.colorsByType?.sd === "string" ? parsed.colorsByType.sd : cardColors[0].value,
+        micro: typeof parsed.colorsByType?.micro === "string" ? parsed.colorsByType.micro : cardColors[0].value,
+        ram: typeof parsed.colorsByType?.ram === "string" ? parsed.colorsByType.ram : ramColors[0].value,
+      };
+
+      setLayersByType(nextLayersByType);
+      setSelectedByType(nextSelectedByType);
+      setColorsByType(nextColorsByType);
+      setDesignType(validDesignType);
+      setDesignName(typeof parsed.designName === "string" ? parsed.designName : "Untitled design");
+      setSaved(true);
+    } catch (error) {
+      console.error("Unable to load project:", error);
+      window.alert("The selected file is not a valid Cardform project.");
+    } finally {
+      if (projectInputRef.current) {
+        projectInputRef.current.value = "";
+      }
+    }
+  };
+
   const exportFiles = async (kind: ExportKind) => {
     setExporting(true);
     const trimSvg = createDesignSvg(layers, cardColor, designType);
     const designExport = createBleedArtworkSvg(trimSvg, designType);
     const bleedExport = createBleedGuidesSvg(designType);
     const exportPayload = kind === "design" ? designExport : bleedExport;
-    const filename =
-      designName.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") ||
-      (designType === "sd" ? "standard-sd-design" : designType === "micro" ? "micro-sd-design" : "ram-design");
+    const filename = getProjectFilename();
 
     try {
       if (exportFormat === "svg") {
@@ -1227,7 +1315,10 @@ export default function App() {
     <button
       key={layer.id}
       className={`canvas-shape ${selectedId === layer.id ? "selected" : ""}`}
-      onClick={() => setSelectedId(layer.id)}
+      onClick={(event) => {
+        event.stopPropagation();
+        setSelectedId(layer.id);
+      }}
       onPointerDown={(event) => handleCanvasPointerDown(event, layer)}
       onPointerMove={handleCanvasPointerMove}
       onPointerUp={handleCanvasPointerUp}
@@ -1272,14 +1363,38 @@ export default function App() {
               }
             }}
             onChange={(event) => {
-              setDesignName(event.target.value);
-              setSaved(false);
+              renameDesign(event.target.value);
             }}
-            onBlur={() => { nameHistoryRecorded.current = false; }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+            onBlur={(event) => {
+              renameDesign(event.currentTarget.value);
+              nameHistoryRecorded.current = false;
+            }}
           />
           <span aria-live="polite">{saved ? "Saved" : "Unsaved changes"}</span>
         </div>
         <div className="top-actions">
+          <div className="project-actions">
+            <button className="project-file-button" type="button" onClick={saveProject}>Save</button>
+            <button
+              className="project-file-button"
+              type="button"
+              onClick={() => projectInputRef.current?.click()}
+            >
+              Load
+            </button>
+            <input
+              ref={projectInputRef}
+              type="file"
+              accept=".cardform.json,application/json"
+              onChange={loadProject}
+              style={{ display: "none" }}
+            />
+          </div>
           <button className="icon-button" aria-label="Undo" onClick={undo}><Icon name="undo" /></button>
           <button className="icon-button" aria-label="Redo" onClick={redo}><Icon name="redo" /></button>
           <span className="divider" />
@@ -1482,6 +1597,7 @@ export default function App() {
 
           <div
             className="stage"
+            onClick={handleStageClick}
             onMouseDown={handleStageMouseDown}
             onMouseMove={handleStageMouseMove}
             onMouseUp={handleStageMouseUp}
@@ -1534,7 +1650,10 @@ export default function App() {
                     <button
                       key={layer.id}
                       className={`canvas-text micro-text ${selectedId === layer.id ? "selected" : ""}`}
-                      onClick={() => setSelectedId(layer.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedId(layer.id);
+                      }}
                       onPointerDown={(event) => handleCanvasPointerDown(event, layer)}
                       onPointerMove={handleCanvasPointerMove}
                       onPointerUp={handleCanvasPointerUp}
@@ -1593,7 +1712,10 @@ export default function App() {
                     <button
                       key={layer.id}
                       className={`canvas-text ${selectedId === layer.id ? "selected" : ""}`}
-                      onClick={() => setSelectedId(layer.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedId(layer.id);
+                      }}
                       onPointerDown={(event) => handleCanvasPointerDown(event, layer)}
                       onPointerMove={handleCanvasPointerMove}
                       onPointerUp={handleCanvasPointerUp}
@@ -1658,7 +1780,10 @@ export default function App() {
                     <button
                       key={layer.id}
                       className={`canvas-text ram-text ${selectedId === layer.id ? "selected" : ""}`}
-                      onClick={() => setSelectedId(layer.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedId(layer.id);
+                      }}
                       onPointerDown={(event) => handleCanvasPointerDown(event, layer)}
                       onPointerMove={handleCanvasPointerMove}
                       onPointerUp={handleCanvasPointerUp}
