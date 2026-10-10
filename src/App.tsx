@@ -26,7 +26,7 @@ type TextLayer = {
 };
 
 type ExportFormat = "pdf" | "jpeg" | "svg";
-type ExportKind = "design" | "bleed";
+type ExportKind = "design" | "bleed" | "guides";
 type DesignType = "sd" | "micro" | "ram";
 
 type EditorSnapshot = {
@@ -1275,9 +1275,13 @@ export default function App() {
   const exportFiles = async (kind: ExportKind) => {
     setExporting(true);
     const trimSvg = createDesignSvg(layers, cardColor, designType);
-    const designExport = createBleedArtworkSvg(trimSvg, designType);
-    const bleedExport = createBleedGuidesSvg(designType);
-    const exportPayload = kind === "design" ? designExport : bleedExport;
+    const trimSize = getExportSize(designType);
+    const exportPayload =
+      kind === "design"
+        ? { svg: trimSvg, ...trimSize }
+        : kind === "bleed"
+          ? createBleedArtworkSvg(trimSvg, designType)
+          : createBleedGuidesSvg(designType);
     const filename = getProjectFilename();
 
     try {
@@ -1434,7 +1438,17 @@ export default function App() {
                   }}
                 >
                   <Icon name="download" size={15} />
-                  Bleed guides
+                  With bleed
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    void exportFiles("guides");
+                  }}
+                >
+                  <Icon name="download" size={15} />
+                  Bleed borders
                 </button>
               </div>
             )}
