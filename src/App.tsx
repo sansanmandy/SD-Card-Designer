@@ -775,7 +775,15 @@ export default function App() {
   const [showGrid, setShowGrid] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [saved, setSaved] = useState(true);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+
+  const clampZoom = (value: number) => Math.min(300, Math.max(70, value));
+  const updateZoom = (nextZoom: number) => setZoom(clampZoom(nextZoom));
   const [draggedLayerId, setDraggedLayerId] = useState<number | null>(null);
+  const [newLayerType, setNewLayerType] = useState<"text" | "rectangle">("text");
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const pastHistory = useRef<EditorSnapshot[]>([]);
   const futureHistory = useRef<EditorSnapshot[]>([]);
   const nameHistoryRecorded = useRef(false);
@@ -791,12 +799,12 @@ export default function App() {
     handle?: string;
     startX: number;
     startY: number;
-    originX: number;
-    originY: number;
-    originWidth: number;
-    originSize: number;
-    originHeight: number;
     originRect?: DOMRect;
+    originLeft: number;
+    originTop: number;
+    originRight: number;
+    originBottom: number;
+    originSize: number;
     moved: boolean;
   } | null>(null);
   const layers = layersByType[designType];
@@ -870,9 +878,40 @@ export default function App() {
     setColorsByType((current) => ({ ...current, [designType]: color }));
   };
 
+  const getDefaultLayers = (type: DesignType): TextLayer[] => {
+    switch (type) {
+      case "micro":
+        return initialMicroLayers.map((layer) => ({ ...layer }));
+      case "ram":
+        return initialRamLayers.map((layer) => ({ ...layer }));
+      case "sd":
+      default:
+        return initialLayers.map((layer) => ({ ...layer }));
+    }
+  };
+
+  const resetDesignToDefaults = (type: DesignType) => {
+    const defaultLayers = getDefaultLayers(type);
+    setLayersByType((current) => ({
+      ...current,
+      [type]: defaultLayers,
+    }));
+    setSelectedByType((current) => ({
+      ...current,
+      [type]: defaultLayers[1]?.id ?? defaultLayers[0]?.id ?? 0,
+    }));
+    setColorsByType((current) => ({
+      ...current,
+      [type]: type === "ram" ? ramColors[0].value : cardColors[0].value,
+    }));
+  };
+
   const switchDesignType = (type: DesignType) => {
     if (type === designType) return;
-    recordHistory();
+
+    // Switching product/template resets to the default element set for that design.
+    resetDesignToDefaults(type);
+
     const defaultNames = ["Untitled standard SD", "Untitled microSD", "Untitled micro SD", "Untitled DDR4 RAM", "Untitled DDR5 RAM"];
     if (defaultNames.includes(designName)) {
       setDesignName(
@@ -901,64 +940,65 @@ export default function App() {
     setSaved(false);
   };
 
-  const addText = () => {
+  const addLayer = (kind: "text" | "rectangle") => {
     recordHistory();
     const id = Math.max(0, ...layers.map((layer) => layer.id)) + 1;
-    setLayers((current) => [
-      ...current,
-      {
-        id,
-        name: `Text ${id}`,
-        text: "NEW TEXT",
-        x: 20,
-        y: 54,
-        size: 18,
-        weight: 600,
-        fontFamily: "Inter",
-        color: "#ffffff",
-        align: "left",
-        width: 60,
-        letterSpacing: 0,
-        backgroundColor: "#000000",
-        backgroundOpacity: 0,
-        backgroundMode: "fit",
-      },
-    ]);
+
+    if (kind === "rectangle") {
+      setLayers((current) => [
+        ...current,
+        {
+          id,
+          kind: "rectangle",
+          name: `Rectangle ${id}`,
+          text: "",
+          x: 20,
+          y: 30,
+          size: 1,
+          weight: 400,
+          fontFamily: "Inter",
+          color: "#ffffff",
+          align: "left",
+          width: 40,
+          height: 24,
+          letterSpacing: 0,
+          backgroundColor: "#000000",
+          backgroundOpacity: 0,
+          backgroundMode: "fit",
+          radius: 3,
+          fill: "#ffffff",
+          fillOpacity: 100,
+        },
+      ]);
+    } else {
+      setLayers((current) => [
+        ...current,
+        {
+          id,
+          name: `Text ${id}`,
+          text: "NEW TEXT",
+          x: 20,
+          y: 54,
+          size: 18,
+          weight: 600,
+          fontFamily: "Inter",
+          color: "#ffffff",
+          align: "left",
+          width: 60,
+          letterSpacing: 0,
+          backgroundColor: "#000000",
+          backgroundOpacity: 0,
+          backgroundMode: "fit",
+        },
+      ]);
+    }
+
     setSelectedId(id);
     setSaved(false);
   };
 
-  const addRectangle = () => {
-    recordHistory();
-    const id = Math.max(0, ...layers.map((layer) => layer.id)) + 1;
-    setLayers((current) => [
-      ...current,
-      {
-        id,
-        kind: "rectangle",
-        name: `Rectangle ${id}`,
-        text: "",
-        x: 20,
-        y: 30,
-        size: 1,
-        weight: 400,
-        fontFamily: "Inter",
-        color: "#ffffff",
-        align: "left",
-        width: 40,
-        height: 24,
-        letterSpacing: 0,
-        backgroundColor: "#000000",
-        backgroundOpacity: 0,
-        backgroundMode: "fit",
-        radius: 3,
-        fill: "#ffffff",
-        fillOpacity: 100,
-      },
-    ]);
-    setSelectedId(id);
-    setSaved(false);
-  };
+  const addText = () => addLayer("text");
+  const addRectangle = () => addLayer("rectangle");
 
   const duplicateText = () => {
     if (!selected) return;
@@ -981,6 +1021,21 @@ export default function App() {
     setSaved(false);
   };
 
+  useEffect(() => {
+    const handleDeleteShortcut = (event: KeyboardEvent) => {
+      const key = event.key;
+      const isDeleteKey = key === "Delete" || key === "Backspace";
+      if (!isDeleteKey || !selected || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) {
+        return;
+      }
+      event.preventDefault();
+      deleteText();
+    };
+
+    window.addEventListener("keydown", handleDeleteShortcut);
+    return () => window.removeEventListener("keydown", handleDeleteShortcut);
+  }, [selected, selectedId, layers]);
+
   const reorderLayers = (draggedId: number, targetId: number) => {
     if (draggedId === targetId) return;
     recordHistory();
@@ -1000,25 +1055,33 @@ export default function App() {
   ) => {
     const canvas = canvasRefs.current[designType];
     if (!canvas) return;
+
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const rect = event.currentTarget.getBoundingClientRect();
+
     recordHistory();
     setSelectedId(layer.id);
+
     canvasDrag.current = {
       id: layer.id,
       pointerId: event.pointerId,
-      mode: event.target instanceof HTMLElement && event.target.dataset.handle
-        ? "scale"
-        : "move",
-      handle: event.target instanceof HTMLElement ? event.target.dataset.handle : undefined,
+      mode:
+        event.target instanceof HTMLElement && event.target.dataset.handle
+          ? "scale"
+          : "move",
+      handle:
+        event.target instanceof HTMLElement ? event.target.dataset.handle : undefined,
       startX: event.clientX,
       startY: event.clientY,
-      originX: layer.x,
-      originY: layer.y,
-      originWidth: layer.width,
+      originRect: rect,
+      originLeft: rect.left - canvasRect.left,
+      originTop: rect.top - canvasRect.top,
+      originRight: rect.right - canvasRect.left,
+      originBottom: rect.bottom - canvasRect.top,
       originSize: layer.size,
-      originHeight: layer.height ?? 30,
-      originRect: event.currentTarget.getBoundingClientRect(),
       moved: false,
     };
   };
@@ -1027,64 +1090,62 @@ export default function App() {
     const drag = canvasDrag.current;
     const canvas = canvasRefs.current[designType];
     if (!drag || drag.pointerId !== event.pointerId || !canvas) return;
+
     const bounds = canvas.getBoundingClientRect();
-    const deltaX = ((event.clientX - drag.startX) / bounds.width) * 100;
-    const deltaY = ((event.clientY - drag.startY) / bounds.height) * 100;
-    if (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5) drag.moved = true;
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+
+    if (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5) {
+      drag.moved = true;
+    }
+
     if (drag.mode === "scale" && drag.originRect) {
-      const directionX = drag.handle?.includes("e") ? 1 : -1;
-      const directionY = drag.handle?.includes("s") ? 1 : -1;
-      const scaleDelta =
-        ((deltaX / 100) * bounds.width * directionX +
-          (deltaY / 100) * bounds.height * directionY) /
-        2;
-      const scale = Math.max(
-        0.1,
-        1 + scaleDelta / Math.max(drag.originRect.width, drag.originRect.height),
-      );
-      const width = snapUp(Math.min(90, Math.max(10, drag.originWidth * scale)));
-      const size = snapUp(Math.min(72, Math.max(6, drag.originSize * scale)));
-      const height = snapUp(Math.min(90, Math.max(5, drag.originHeight * scale)));
-      const scaledWidth = drag.originRect.width * scale;
-      const scaledHeight = drag.originRect.height * scale;
-      const x = drag.handle?.includes("w")
-        ? snapUp(
-            Math.min(
-              90,
-              Math.max(
-                0,
-                drag.originX -
-                  ((scaledWidth - drag.originRect.width) / bounds.width) * 100,
-              ),
-            ),
-          )
-        : drag.originX;
-      const y = drag.handle?.includes("n")
-        ? snapUp(
-            Math.min(
-              94,
-              Math.max(
-                0,
-                drag.originY -
-                  ((scaledHeight - drag.originRect.height) / bounds.height) * 100,
-              ),
-            ),
-          )
-        : drag.originY;
+      const nextLeft = drag.handle?.includes("w")
+        ? drag.originLeft + deltaX
+        : drag.originLeft;
+      const nextTop = drag.handle?.includes("n")
+        ? drag.originTop + deltaY
+        : drag.originTop;
+      const nextRight = drag.handle?.includes("e")
+        ? drag.originRight + deltaX
+        : drag.originRight;
+      const nextBottom = drag.handle?.includes("s")
+        ? drag.originBottom + deltaY
+        : drag.originBottom;
+
+      const widthPx = Math.max(12, nextRight - nextLeft);
+      const heightPx = Math.max(10, nextBottom - nextTop);
+      const scaleX = widthPx / Math.max(drag.originRect.width, 1);
+      const scaleY = heightPx / Math.max(drag.originRect.height, 1);
+      const scale = Math.max(0.1, (scaleX + scaleY) / 2);
+
+      const x = snapUp((nextLeft / bounds.width) * 100);
+      const y = snapUp((nextTop / bounds.height) * 100);
+      const width = snapUp((widthPx / bounds.width) * 100);
+      const height = snapUp((heightPx / bounds.height) * 100);
+
       setLayers((current) =>
         current.map((layer) =>
           layer.id === drag.id
             ? layer.kind === "rectangle"
               ? { ...layer, x, y, width, height }
-              : { ...layer, x, y, width, size }
+              : {
+                  ...layer,
+                  x,
+                  y,
+                  width,
+                  size: snapUp(Math.max(6, drag.originSize * scale)),
+                }
             : layer,
         ),
       );
       setSaved(false);
       return;
     }
-    const x = snapUp(Math.min(90, Math.max(0, drag.originX + deltaX)));
-    const y = snapUp(Math.min(94, Math.max(0, drag.originY + deltaY)));
+
+    const x = snapUp(((drag.originLeft + deltaX) / bounds.width) * 100);
+    const y = snapUp(((drag.originTop + deltaY) / bounds.height) * 100);
+
     setLayers((current) =>
       current.map((layer) => (layer.id === drag.id ? { ...layer, x, y } : layer)),
     );
@@ -1095,6 +1156,30 @@ export default function App() {
     if (canvasDrag.current?.pointerId === event.pointerId) {
       canvasDrag.current = null;
     }
+  };
+
+  const handleStageMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    setIsPanning(true);
+    panStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+  };
+
+  const handleStageMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isPanning) return;
+    setPan({
+      x: panStartRef.current.panX + (event.clientX - panStartRef.current.x),
+      y: panStartRef.current.panY + (event.clientY - panStartRef.current.y),
+    });
+  };
+
+  const handleStageMouseUp = () => {
+    setIsPanning(false);
   };
 
   const exportFiles = async (kind: ExportKind) => {
@@ -1248,12 +1333,51 @@ export default function App() {
             <div className="section-heading">
               <span>LAYERS</span>
               <span className="layer-add-actions">
-                <button className="tiny-button" onClick={addText} aria-label="Add text">
-                  <Icon name="text" size={15} />
+                <button
+                  className="new-button"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    addLayer(newLayerType);
+                  }}
+                  aria-label="Add selected element"
+                >
+                  <Icon name="plus" size={15} />
+                  <span>New</span>
                 </button>
-                <button className="tiny-button" onClick={addRectangle} aria-label="Add rectangle">
-                  <Icon name="rectangle" size={15} />
-                </button>
+                <div className="layer-menu">
+                  <button
+                    className="layer-menu-toggle"
+                    aria-label="Choose element type"
+                    aria-expanded={addMenuOpen}
+                    onClick={() => setAddMenuOpen((open) => !open)}
+                  >
+                    <Icon name="chevron" size={15} />
+                  </button>
+                  {addMenuOpen && (
+                    <div className="layer-menu-popover" role="menu">
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setNewLayerType("text");
+                          setAddMenuOpen(false);
+                        }}
+                      >
+                        <Icon name="text" size={14} />
+                        Text box
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setNewLayerType("rectangle");
+                          setAddMenuOpen(false);
+                        }}
+                      >
+                        <Icon name="rectangle" size={14} />
+                        Rectangle
+                      </button>
+                    </div>
+                  )}
+                </div>
               </span>
             </div>
             <div className="layer-list">
@@ -1347,20 +1471,31 @@ export default function App() {
               <span className="grid-icon" /> Grid
             </button>
             <span className="toolbar-separator" />
-            <button aria-label="Zoom out" onClick={() => setZoom((value) => Math.max(70, value - 10))}>
+            <button aria-label="Zoom out" onClick={() => updateZoom(zoom - 10)}>
               <Icon name="minus" size={15} />
             </button>
             <span className="zoom-value">{zoom}%</span>
-            <button aria-label="Zoom in" onClick={() => setZoom((value) => Math.min(130, value + 10))}>
+            <button aria-label="Zoom in" onClick={() => updateZoom(zoom + 10)}>
               <Icon name="plus" size={15} />
             </button>
           </div>
 
-          <div className="stage">
+          <div
+            className="stage"
+            onMouseDown={handleStageMouseDown}
+            onMouseMove={handleStageMouseMove}
+            onMouseUp={handleStageMouseUp}
+            onMouseLeave={handleStageMouseUp}
+            onWheel={(event) => {
+              event.preventDefault();
+              const direction = event.deltaY < 0 ? 1 : -1;
+              updateZoom(zoom + direction * 10);
+            }}
+          >
             {designType === "micro" ? (
               <div
                 className="micro-card-wrap"
-                style={{ transform: `scale(${zoom / 100})` }}
+                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})` }}
               >
                 <div className="dimension dimension-top">
                   <span>15 mm</span>
@@ -1435,7 +1570,7 @@ export default function App() {
             ) : designType === "sd" ? (
               <div
                 className="sd-card-wrap"
-                style={{ transform: `scale(${zoom / 100})` }}
+                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})` }}
               >
                 <div className="dimension dimension-top">
                   <span>24 mm</span>
@@ -1497,7 +1632,7 @@ export default function App() {
             ) : (
               <div
                 className="ram-card-wrap"
-                style={{ transform: `scale(${zoom / 100})` }}
+                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})` }}
               >
                 <div className="dimension dimension-top">
                   <span>133.35 mm</span>

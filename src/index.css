@@ -45,13 +45,15 @@ textarea:focus-visible {
 .topbar {
   height: 68px;
   display: grid;
-  grid-template-columns: 280px 1fr 390px;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(260px, 1fr);
   align-items: center;
   background: #fbfcfa;
   border-bottom: 1px solid #dfe2dc;
 }
 
 .brand {
+  justify-self: start;
+  margin-left: 18px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -110,6 +112,7 @@ textarea:focus-visible {
 
 .top-actions {
   justify-self: end;
+  margin-right: 12px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -304,7 +307,82 @@ textarea:focus-visible {
 
 .layer-add-actions {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 0;
+}
+
+.new-button {
+  height: 28px;
+  padding: 0 10px 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d9dcd6;
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  color: #666d67;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.new-button:hover {
+  background: #f1f3ef;
+}
+
+.layer-menu {
+  position: relative;
+}
+
+.layer-menu-toggle {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d9dcd6;
+  border-radius: 0 8px 8px 0;
+  color: #666d67;
+  background: transparent;
+  cursor: pointer;
+}
+
+.layer-menu-toggle:hover {
+  background: #f1f3ef;
+}
+
+.layer-menu-popover {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 7px);
+  right: 0;
+  min-width: 128px;
+  padding: 5px;
+  border: 1px solid #d9dcd6;
+  border-radius: 7px;
+  background: #fbfcfa;
+  box-shadow: 0 8px 20px rgb(36 45 40 / 14%);
+}
+
+.layer-menu-popover button {
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 5px;
+  color: #315c54;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.layer-menu-popover button:hover {
+  background: #eaf0ec;
 }
 
 .section-heading > span,
@@ -651,8 +729,8 @@ textarea:focus-visible {
   position: absolute;
   inset: 7px -2px -9px 7px;
   border-radius: 14px;
-  background: rgb(35 45 40 / 12%);
-  filter: blur(12px);
+  background: rgb(35 45 40 / 10%);
+  filter: blur(4px);
 }
 
 .sd-card {
@@ -661,7 +739,7 @@ textarea:focus-visible {
   overflow: hidden;
   border-radius: 8px 22px 12px 8px;
   clip-path: polygon(0 0, 73% 0, 100% 20%, 100% 100%, 0 100%);
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 8%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%);
   transition: background-color 180ms ease;
 }
 
@@ -670,7 +748,7 @@ textarea:focus-visible {
   inset: 0;
   overflow: hidden;
   background: transparent !important;
-  box-shadow: none;
+  filter: drop-shadow(0 3px 6px rgb(35 45 40 / 12%));
   transition: background-color 180ms ease;
 }
 
@@ -706,7 +784,7 @@ textarea:focus-visible {
   overflow: hidden;
   border-radius: 6px 6px 2px 2px;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 55% 100%, 53.7% 89%, 50.7% 89%, 49.2% 100%, 0 100%);
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 8%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%);
   transition: background-color 180ms ease;
 }
 
@@ -715,7 +793,7 @@ textarea:focus-visible {
   position: absolute;
   z-index: 1;
   inset: 7px 9px 22px;
-  border: 1px solid rgb(255 255 255 / 9%);
+  /* border: 1px solid rgb(255 255 255 / 9%); */
   border-radius: 2px;
   pointer-events: none;
 }
@@ -724,7 +802,7 @@ textarea:focus-visible {
   content: "";
   position: absolute;
   inset: 8px;
-  border: 1px solid rgb(255 255 255 / 8%);
+  /* border: 1px solid rgb(255 255 255 / 8%); */
   clip-path: polygon(0 0, 72% 0, 100% 20%, 100% 100%, 0 100%);
 }
 
@@ -787,7 +865,8 @@ textarea:focus-visible {
 
 .ram-contacts i {
   display: block;
-  background: linear-gradient(90deg, #c39b4a, #e1c16d 50%, #b58c40);
+  background: #c39b4a;
+  /* background: linear-gradient(90deg, #c39b4a, #e1c16d 50%, #b58c40); */
 }
 
 .ram-generation {
