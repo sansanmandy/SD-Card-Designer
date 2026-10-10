@@ -1,0 +1,10 @@
+{
+  "description": "Design custom micro SD cards with personalized text and size options, perfect for users seeking unique storage solutions for personal or professional use.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
